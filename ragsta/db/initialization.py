@@ -1,5 +1,4 @@
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import inspect
 from db.constants import *
 from db.models import *
@@ -34,23 +33,44 @@ def db_init(username: str, password: str, host: str = "localhost", port: int = 5
         conn.close()
 
 
+def pgvector_init(
+    username: str = "admin",
+    password: str = "password",
+    host: str = "localhost",
+    port: int = 5432,
+):
+    engine = get_engine(username, password, host, port)
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
+        ).fetchone()
+
+        if not result:
+            print("pgvector not found, creating extension...")
+            conn.execute(text("CREATE EXTENSION vector"))
+        else:
+            print("pgvector is already enabled.")
+
+    engine.dispose()
+
+
 def article_db_init(
     username: str,
     password: str,
     host: str = "localhost",
     port: int = 5432,
 ):
-    url = f"postgresql://{username}:{password}@{host}:{port}/{DB_NAME}"
-    engine = create_engine(url)
+    engine = get_engine(username, password, host, port)
     inspector = inspect(engine)
 
-    if not inspector.has_schema(BRONZE_SCHEMA):
-        print("Creating schema...")
-        with engine.connect() as conn:
-            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {BRONZE_SCHEMA}"))
-            conn.commit()
-    else:
-        print("Schema already exists")
+    for schema in schemas:
+        if not inspector.has_schema(schema):
+            print(f"Creating schema '{schema}'...")
+            with engine.connect() as conn:
+                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+                conn.commit()
+        else:
+            print(f"Schema '{schema}' already exists")
 
     if not inspector.has_table(TABLE_RAW_ARTICLES, schema=BRONZE_SCHEMA):
         print("Creating table...")
