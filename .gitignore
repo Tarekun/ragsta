@@ -1,1 +1,4 @@
 postgres/database
+
+.venv
+/**/__pycache__/
