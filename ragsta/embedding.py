@@ -24,10 +24,11 @@ def get_unembedded_articles(session, EmbeddingTable, batch_size: int) -> list[Ar
 
 
 def embed_article(
-    article: Article, model: str, ollama_host: str, session, EmbeddingTable
+    article: Article, model: str, ollama_host: str, Session, EmbeddingTable
 ):
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_text(article.content)
+    embedded_chunks = []
     print(f"Processing article: {article.title} -> {len(chunks)} chunks")
 
     for idx, chunk in enumerate(chunks):
@@ -37,7 +38,7 @@ def embed_article(
         response.raise_for_status()
         embedding = response.json()["embedding"]
 
-        session.merge(
+        embedded_chunks.append(
             EmbeddingTable(
                 article_title=article.title,
                 chunk_index=idx,
@@ -45,7 +46,19 @@ def embed_article(
             )
         )
 
-    return len(chunks)
+    with Session() as session:
+        try:
+            with session.begin():
+                for item in embedded_chunks:
+                    session.merge(item)
+            print(
+                f"Committed {len(embedded_chunks)} chunks for article '{article.title}'"
+            )
+        except Exception as e:
+            print(f"Failed to commit article '{article.title}': {e}")
+            raise e
+
+    return len(embedded_chunks)
 
 
 def embedding_pipeline(
@@ -60,10 +73,9 @@ def embedding_pipeline(
     engine = get_engine(db_username, db_password, db_host, db_port)
     EmbeddingTable = get_embedding_table_for(model, engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
 
     try:
-        articles = get_unembedded_articles(session, EmbeddingTable, batch_size)
+        articles = get_unembedded_articles(Session(), EmbeddingTable, batch_size)
         if not articles:
             print("No articles to embed")
             return
@@ -73,16 +85,13 @@ def embedding_pipeline(
         total_chunks = 0
         for article in articles:
             total_chunks += embed_article(
-                article, model, ollama_host, session, EmbeddingTable
+                article, model, ollama_host, Session, EmbeddingTable
             )
 
-        session.commit()
         print(
             f"Embedded {total_chunks} chunks from {len(articles)} articles with model '{model}'"
         )
 
     except Exception as e:
-        session.rollback()
+        print(f"An error occurred in the embedding pipeline: {e}")
         raise e
-    finally:
-        session.close()
