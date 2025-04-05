@@ -11,3 +11,6 @@ class Article(Base):
     title = Column(String, primary_key=True)
     content = Column(String, nullable=False)
     authors = Column(ARRAY(String), nullable=False, default=[])
+
+    def model_dump(self):
+        return {"title": self.title, "content": self.content, "authors": self.authors}
