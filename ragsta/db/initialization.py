@@ -1,11 +1,10 @@
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import inspect
 from db.constants import *
 from db.models import *
 
 
-def db_init(username: str, password: str, host: str = "localhost", port: int = 5432):
+def _db_init(username: str, password: str, host: str = "localhost", port: int = 5432):
     import psycopg2
 
     try:
@@ -34,27 +33,53 @@ def db_init(username: str, password: str, host: str = "localhost", port: int = 5
         conn.close()
 
 
-def article_db_init(
-    username: str,
-    password: str,
+def _schemas_init(engine):
+    inspector = inspect(engine)
+
+    for schema in schemas:
+        if not inspector.has_schema(schema):
+            print(f"Creating schema '{schema}'...")
+            with engine.connect() as conn:
+                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+                conn.commit()
+        else:
+            print(f"Schema '{schema}' already exists")
+
+
+def _pgvector_init(engine):
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
+        ).fetchone()
+
+        if not result:
+            print("pgvector not found, creating extension...")
+            conn.execute(text(f"CREATE EXTENSION vector SCHEMA {EMBEDDINGS_SCHEMA}"))
+            conn.commit()
+        else:
+            print("pgvector is already enabled.")
+
+    engine.dispose()
+
+
+def _tables_init(engine):
+    # inspector = inspect(engine)
+    # if not inspector.has_table(TABLE_RAW_ARTICLES, schema=BRONZE_SCHEMA):
+    print("Creating table...")
+    Base.metadata.create_all(engine)
+    # print(f"Table '{BRONZE_SCHEMA}.{TABLE_RAW_ARTICLES}' created")
+    # else:
+    #     print(f"Table '{BRONZE_SCHEMA}.{TABLE_RAW_ARTICLES}' already exists")
+
+
+def database_initialization(
+    username: str = "admin",
+    password: str = "password",
     host: str = "localhost",
     port: int = 5432,
 ):
-    url = f"postgresql://{username}:{password}@{host}:{port}/{DB_NAME}"
-    engine = create_engine(url)
-    inspector = inspect(engine)
-
-    if not inspector.has_schema(BRONZE_SCHEMA):
-        print("Creating schema...")
-        with engine.connect() as conn:
-            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {BRONZE_SCHEMA}"))
-            conn.commit()
-    else:
-        print("Schema already exists")
-
-    if not inspector.has_table(TABLE_RAW_ARTICLES, schema=BRONZE_SCHEMA):
-        print("Creating table...")
-        Base.metadata.create_all(engine)
-        print(f"Table '{BRONZE_SCHEMA}.{TABLE_RAW_ARTICLES}' created")
-    else:
-        print(f"Table '{BRONZE_SCHEMA}.{TABLE_RAW_ARTICLES}' already exists")
+    engine = get_engine(username, password, host, port)
+    _db_init(username, password, host, port)
+    _schemas_init(engine)
+    _pgvector_init(engine)
+    _tables_init(engine)

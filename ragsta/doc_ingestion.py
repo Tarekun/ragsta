@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import insert
 import fitz
-from db.constants import DB_NAME
+from db.constants import get_engine
 from db.models import Article
 
 
@@ -58,8 +58,7 @@ def flush_article_batch(batch: list[Article], session):
 
 def ingest_directory(dir_path: str, scan_recursively: bool = True):
     """Ingest all the PDF documents contained at `dir_path`. Stores them in the article table"""
-    url = f"postgresql://admin:password@localhost:5432/{DB_NAME}"
-    engine = create_engine(url)
+    engine = get_engine("admin", "password", "localhost", 5432)
     Session = sessionmaker(bind=engine)
     session = Session()
 
