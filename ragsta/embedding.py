@@ -41,6 +41,7 @@ def embed_article(
         embedded_chunks.append(
             EmbeddingTable(
                 article_title=article.title,
+                chunk_text=chunk,
                 chunk_index=idx,
                 embedding=np.array(embedding).tolist(),
             )

@@ -26,6 +26,7 @@ def get_embedding_table_for(model: str, engine):
         __table_args__ = {"schema": EMBEDDINGS_SCHEMA}
 
         article_title = Column(String, primary_key=True)
+        chunk_text = Column(String)
         chunk_index = Column(Integer, primary_key=True)
         embedding = Column(Vector(768))
         created_at = Column(Float, default=lambda: time.time())
