@@ -3,29 +3,38 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import insert
+import fitz
 from db.constants import DB_NAME
 from db.models import Article
 
 
-def read_pdf(file_path: str) -> str:
+def read_pdf(file_path: str) -> Article:
     """Reads the content of a PDF file"""
-    return "test content2"
+    try:
+        doc = fitz.open(file_path)
+        raw_text = "".join(page.get_text() for page in doc)
+        clean_text = raw_text.replace("\x00", "")
+        title = doc.metadata.get("title", Path(file_path).stem)
+        title = Path(file_path).stem
+
+        return Article(title=title, content=clean_text, authors=[])
+    except Exception as e:
+        print(f"Error reading {file_path}: {str(e)}")
+        return None
+    finally:
+        if "doc" in locals():
+            doc.close()
 
 
-def read_article_batch(batch: list[Path]):
+def read_article_batch(batch: list[Path]) -> list[Article]:
     articles = []
 
     for file_path in batch:
         print(f"Processing {file_path}")
-        content = read_pdf(str(file_path))
-        if not content:
+        article = read_pdf(str(file_path))
+        if not article:
             continue
 
-        article = Article(
-            title=file_path.stem,
-            content=content,
-            authors=[],
-        )
         articles.append(article)
 
     return articles
