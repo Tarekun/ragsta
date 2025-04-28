@@ -1,13 +1,16 @@
 import os
-import numpy as np
-import requests
-from sqlalchemy import create_engine
+import uuid
 from sqlalchemy.orm import sessionmaker
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_ollama import OllamaEmbeddings
+from langchain_postgres import PGVector
+from langchain.schema import Document
 from db.models import Article, get_embedding_table_for
-from db.constants import get_engine
+from db.constants import get_engine, confirm_model_schema
+
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://192.168.1.102:11434")
+ACADEMIC_PUBLICATIONS_COLLECTION = "academic-articles"
 
 
 def get_unembedded_articles(session, EmbeddingTable, batch_size: int) -> list[Article]:
@@ -24,42 +27,49 @@ def get_unembedded_articles(session, EmbeddingTable, batch_size: int) -> list[Ar
 
 
 def embed_article(
-    article: Article, model: str, ollama_host: str, Session, EmbeddingTable
+    article: Article,
+    model: str,
+    ollama_host: str,
 ):
+    embeddings = OllamaEmbeddings(model=model, base_url=ollama_host)
+    embedding_length = len(embeddings.embed_query("test embedding"))
+    print(f"computed embedding length: {embedding_length}")
+    vector_store = PGVector(
+        embeddings=embeddings,
+        connection="postgresql+psycopg://admin:password@localhost:5432/ragsta",
+        collection_name=ACADEMIC_PUBLICATIONS_COLLECTION,
+        create_extension=True,
+        embedding_length=embedding_length,
+        # 5 months and counting, lets see how long it takes them...
+        # https://github.com/langchain-ai/langchain-postgres/pull/138
+        engine_args={
+            "execution_options": {
+                "schema_translate_map": {
+                    None: model,
+                },
+            },
+        },
+    )
+
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_text(article.content)
-    embedded_chunks = []
     print(f"Processing article: {article.title} -> {len(chunks)} chunks")
 
+    documents = []
     for idx, chunk in enumerate(chunks):
-        response = requests.post(
-            f"{ollama_host}/api/embeddings", json={"model": model, "prompt": chunk}
-        )
-        response.raise_for_status()
-        embedding = response.json()["embedding"]
-
-        embedded_chunks.append(
-            EmbeddingTable(
-                article_title=article.title,
-                chunk_text=chunk,
-                chunk_index=idx,
-                embedding=np.array(embedding).tolist(),
+        documents.append(
+            Document(
+                page_content=chunk,
+                metadata={
+                    "title": article.title,
+                    "authors": article.authors,
+                    "chunk_id": idx,
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_DNS, article.title)) + str(idx),
+                },
             )
         )
-
-    with Session() as session:
-        try:
-            with session.begin():
-                for item in embedded_chunks:
-                    session.merge(item)
-            print(
-                f"Committed {len(embedded_chunks)} chunks for article '{article.title}'"
-            )
-        except Exception as e:
-            print(f"Failed to commit article '{article.title}': {e}")
-            raise e
-
-    return len(embedded_chunks)
+    vector_store.add_documents(documents, ids=[doc.metadata["id"] for doc in documents])
+    return len(chunks)
 
 
 def embedding_pipeline(
@@ -74,6 +84,7 @@ def embedding_pipeline(
     engine = get_engine(db_username, db_password, db_host, db_port)
     EmbeddingTable = get_embedding_table_for(model, engine)
     Session = sessionmaker(bind=engine)
+    confirm_model_schema(model, engine)
 
     try:
         articles = get_unembedded_articles(Session(), EmbeddingTable, batch_size)
@@ -85,9 +96,7 @@ def embedding_pipeline(
 
         total_chunks = 0
         for article in articles:
-            total_chunks += embed_article(
-                article, model, ollama_host, Session, EmbeddingTable
-            )
+            total_chunks += embed_article(article, model, ollama_host)
 
         print(
             f"Embedded {total_chunks} chunks from {len(articles)} articles with model '{model}'"
