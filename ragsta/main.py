@@ -4,4 +4,5 @@ from embedding import embedding_pipeline
 
 database_initialization()
 ingest_directory("C:\\Users\\danie\\uni\\deep Learning\\papers\\scaling")
-embedding_pipeline("nomic-embed-text")
+embedding_pipeline("qwen2.5:14b")
+# embedding_pipeline("nomic-embed-text")

@@ -7,6 +7,7 @@ from langchain_postgres import PGVector
 from langchain.schema import Document
 from db.models import Article, get_embedding_table_for
 from db.constants import get_engine, confirm_model_schema
+from db.vectorstore import vector_store
 
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://192.168.1.102:11434")
@@ -31,26 +32,9 @@ def embed_article(
     model: str,
     ollama_host: str,
 ):
-    embeddings = OllamaEmbeddings(model=model, base_url=ollama_host)
-    embedding_length = len(embeddings.embed_query("test embedding"))
-    print(f"computed embedding length: {embedding_length}")
-    vector_store = PGVector(
-        embeddings=embeddings,
-        connection="postgresql+psycopg://admin:password@localhost:5432/ragsta",
-        collection_name=ACADEMIC_PUBLICATIONS_COLLECTION,
-        create_extension=True,
-        embedding_length=embedding_length,
-        # 5 months and counting, lets see how long it takes them...
-        # https://github.com/langchain-ai/langchain-postgres/pull/138
-        engine_args={
-            "execution_options": {
-                "schema_translate_map": {
-                    None: model,
-                },
-            },
-        },
+    article_vectorstore = vector_store(
+        model, ollama_host, ACADEMIC_PUBLICATIONS_COLLECTION
     )
-
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_text(article.content)
     print(f"Processing article: {article.title} -> {len(chunks)} chunks")
@@ -68,7 +52,9 @@ def embed_article(
                 },
             )
         )
-    vector_store.add_documents(documents, ids=[doc.metadata["id"] for doc in documents])
+    article_vectorstore.add_documents(
+        documents, ids=[doc.metadata["id"] for doc in documents]
+    )
     return len(chunks)
 
 
