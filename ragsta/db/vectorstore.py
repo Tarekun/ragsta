@@ -1,5 +1,5 @@
 from langchain_ollama import OllamaEmbeddings
-from langchain_postgres import PGVector
+from langchain_postgres.vectorstores import PGVector
 
 
 def embedder_for(model: str):

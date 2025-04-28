@@ -1,5 +1,5 @@
 from langchain_ollama import OllamaLLM
-from langchain.chains import RetrievalQA
+from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from db.vectorstore import vector_store
 
@@ -18,30 +18,47 @@ Question: {question}
 Answer:"""
 
 
-def execute_rag_inference(question: str, inference_model: str, ollama_host: str):
-    docs_vector_store = vector_store(inference_model, ollama_host, "academic-articles")
-    llm = OllamaLLM(base_url=ollama_host, model=inference_model)
-    prompt = PromptTemplate(
-        template=PROMPT_TEMPLATE, input_variables=["context", "question"]
-    )
-    # Create the QA chain
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=docs_vector_store.as_retriever(),
-        chain_type="stuff",
-        chain_type_kwargs={"prompt": prompt},
-    )
-    result = qa_chain.invoke({"query": question})
-    # logging
+def retrieve_context(question: str, model: str, ollama_host: str):
+    """Retrieve relevant documents from vector store based on question"""
+    docs_vector_store = vector_store(model, ollama_host, "academic-articles")
+    
+    # Log retrieved documents for debugging
     print("\nRetrieved Context:")
     docs = docs_vector_store.similarity_search(question)
+    context = "\n\n".join([doc.page_content for doc in docs])
+    
     for i, doc in enumerate(docs):
         print(f"\nDocument {i+1}:")
         print(doc.page_content[:500] + "...")
+    
+    return context
+
+
+def execute_rag_inference(question: str, inference_model: str, ollama_host: str):
+    """Execute RAG pipeline with retrieved context"""
+    # First retrieve relevant documents
+    context = retrieve_context(question, EMBED_MODEL, ollama_host)
+    
+    # Then generate answer using the retrieved context
+    llm = OllamaLLM(base_url=ollama_host, model=inference_model)
+    prompt = PromptTemplate(
+        template=PROMPT_TEMPLATE,
+        input_variables=["context", "question"]
+    )
+    
+    # Create a simple LLMChain instead of RetrievalQA
+    chain = LLMChain(llm=llm, prompt=prompt)
+    
+    # Execute with our retrieved context
+    result = chain.invoke({
+        "context": context,
+        "question": question
+    })
+    
     print("\nQuestion:")
     print(question)
     print("\nAnswer:")
-    print(result["result"])
+    print(result["text"])
 
 
 if __name__ == "__main__":
