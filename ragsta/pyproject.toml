@@ -14,7 +14,9 @@ dependencies = [
     "fitz (>=0.0.1.dev2,<0.0.2)",
     "pymupdf (>=1.25.5,<2.0.0)",
     "langchain (>=0.3.23,<0.4.0)",
-    "pgvector (>=0.4.0,<0.5.0)"
+    "langchain-postgres (>=0.0.13,<0.0.14)",
+    "langchain-ollama (>=0.3.0,<0.4.0)",
+    "langgraph (>=0.3.25,<0.4.0)",
 ]
 
 

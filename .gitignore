@@ -2,3 +2,4 @@ postgres/database
 
 ragsta/.venv
 /**/__pycache__/
+.aider*

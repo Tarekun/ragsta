@@ -26,11 +26,10 @@ def _db_init(username: str, password: str, host: str = "localhost", port: int = 
             cursor.execute(f"CREATE DATABASE {DB_NAME}")
             print(f"Database '{DB_NAME}' created successfully")
 
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
         cursor.close()
         conn.close()
+    except Exception as e:
+        print(f"Error: {e}")
 
 
 def _schemas_init(engine):
@@ -55,6 +54,11 @@ def _pgvector_init(engine):
         if not result:
             print("pgvector not found, creating extension...")
             conn.execute(text(f"CREATE EXTENSION vector SCHEMA {EMBEDDINGS_SCHEMA}"))
+            conn.execute(
+                text(
+                    f"ALTER DATABASE {DB_NAME} SET search_path TO {EMBEDDINGS_SCHEMA}, public"
+                )
+            )
             conn.commit()
         else:
             print("pgvector is already enabled.")
