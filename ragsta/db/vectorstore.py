@@ -9,11 +9,13 @@ def embedder_for(model: str):
         return "nomic-embed-text"
 
 
-def vector_store(model: str, ollama_url: str, collection: str) -> PGVector:
-    embedder = embedder_for(model)
+def vector_store(inference_model: str, ollama_url: str, collection: str) -> PGVector:
+    embedder = embedder_for(inference_model)
     embeddings = OllamaEmbeddings(base_url=ollama_url, model=embedder)
     embedding_length = len(embeddings.embed_query("test embedding"))
-    print(f"computed embedding length for {model} using {embedder}: {embedding_length}")
+    print(
+        f"computed embedding length for {inference_model} using {embedder}: {embedding_length}"
+    )
 
     return PGVector(
         embeddings=embeddings,
