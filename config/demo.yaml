@@ -1,0 +1,26 @@
+ollama_host: "http://192.168.1.102:11434"
+max_iterations: 50
+
+models:
+  # parameter recommendations for thinking mode from Qwen team
+  # src: https://huggingface.co/unsloth/Qwen3-4B-GGUF#switching-between-thinking-and-non-thinking-mode
+  sufficiency:
+    name: "hf.co/unsloth/Qwen3-4B-GGUF:Q8_0"
+    temp: 0.6
+    top_k: 20
+    top_p: 0.95
+  reformulation:
+    name: "hf.co/unsloth/Qwen3-4B-GGUF:Q8_0"
+    temp: 0.6
+    top_k: 20
+    top_p: 0.95
+  reranking:
+    name: "hf.co/unsloth/Qwen3-4B-GGUF:Q8_0"
+    temp: 0.6
+    top_k: 20
+    top_p: 0.95
+  final_answer:
+    name: "hf.co/unsloth/Qwen3-32B-GGUF:Q6_K"
+    temp: 0.6
+    top_k: 20
+    top_p: 0.95

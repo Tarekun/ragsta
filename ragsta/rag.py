@@ -2,6 +2,7 @@ from langchain_ollama import OllamaLLM
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnableSequence
 import json
+from omegaconf import DictConfig
 from db.vectorstore import vector_store, embedder_for
 
 ANSWERING_PROMPT = """
@@ -20,7 +21,7 @@ Given the current document set {documents} and original question {question}, ana
 3. Conflicting information across sources  
 Output 'sufficient' only if all criteria are met, otherwise list missing elements."""
 
-REFORMULATION_PROMPT = """
+REFORMULATION_PROMPT = """\\no_think
 Given original question {question} and current context {context}, generate a question that:
 * Seek to fill missing info not yet provided in the current context
 * Request comparative analysis of conflicting information"""
@@ -43,13 +44,21 @@ def make_chain(
 ):
     """Create a LangChain RunnableSequence with Ollama LLM"""
     llm = OllamaLLM(
-        base_url=ollama_host, model=model, temperature=temp, top_k=top_k, top_p=top_p
+        base_url=ollama_host,
+        model=model,
+        temperature=temp,
+        top_k=top_k,
+        top_p=top_p,
+        num_ctx=65536,
+        keep_alive=0,
     )
     prompt = PromptTemplate(template=prompt_template, input_variables=input_variables)
     return RunnableSequence(prompt | llm)
 
 
-def format_chunks(chunks: list, shorten: bool = False, enumerate: bool = False) -> str:
+def format_chunks(
+    chunks: list, shorten: bool = False, enum_chunks: bool = False
+) -> str:
     """Format a list of chunks into text for prompting"""
 
     formatted_chunks = []
@@ -57,7 +66,7 @@ def format_chunks(chunks: list, shorten: bool = False, enumerate: bool = False) 
         content = doc.page_content
         if shorten:
             content = content[:500] + "..."
-        if enumerate:
+        if enum_chunks:
             content = f"Chunk {i}:\n{content}"
 
         formatted_chunks.append(content)
@@ -65,14 +74,18 @@ def format_chunks(chunks: list, shorten: bool = False, enumerate: bool = False) 
     return "\n\n".join(formatted_chunks)
 
 
-def determine_sufficiency(question: str, chunks: list, ollama_host: str) -> bool:
+def determine_sufficiency(question: str, chunks: list, config: DictConfig) -> bool:
     """Determine if retrieved documents are sufficient to answer the question"""
 
+    model_config = config.models.sufficiency
     chain = make_chain(
-        ollama_host=ollama_host,
-        model="llama3",
+        ollama_host=config.ollama_host,
+        model=model_config.name,
         prompt_template=SUFFICIENCY_PROMPT,
         input_variables=["documents", "question"],
+        temp=model_config.temp,
+        top_k=model_config.top_k,
+        top_p=model_config.top_p,
     )
     documents_text = format_chunks(chunks)
     result = chain.invoke({"documents": documents_text, "question": question})
@@ -81,14 +94,18 @@ def determine_sufficiency(question: str, chunks: list, ollama_host: str) -> bool
     return "sufficient" in result.lower()
 
 
-def query_reformulation(question: str, chunks: list, ollama_host: str) -> str:
+def query_reformulation(question: str, chunks: list, config: DictConfig) -> str:
     """Reformulate the question based on current context"""
 
+    model_config = config.models.reformulation
     chain = make_chain(
-        ollama_host=ollama_host,
-        model="llama3.1",
+        ollama_host=config.ollama_host,
+        model=model_config.name,
         prompt_template=REFORMULATION_PROMPT,
         input_variables=["question", "context"],
+        temp=model_config.temp,
+        top_k=model_config.top_k,
+        top_p=model_config.top_p,
     )
     context = format_chunks(chunks)
     result = chain.invoke({"question": question, "context": context})
@@ -97,17 +114,21 @@ def query_reformulation(question: str, chunks: list, ollama_host: str) -> str:
 
 
 def rerank_chunks(
-    question: str, current_chunks: list, new_chunks: list, ollama_host: str
+    question: str, current_chunks: list, new_chunks: list, config: DictConfig
 ) -> list:
     """Rerank chunks based on relevance to the original question"""
 
+    model_config = config.models.reranking
     all_chunks = current_chunks + new_chunks
     formatted_chunks = format_chunks(all_chunks, enumerate=True)
     chain = make_chain(
-        ollama_host=ollama_host,
-        model="",
+        ollama_host=config.ollama_host,
+        model=model_config.name,
         prompt_template=RERANKING_PROMPT,
         input_variables=["question", "chunks"],
+        temp=model_config.temp,
+        top_k=model_config.top_k,
+        top_p=model_config.top_p,
     )
 
     result = chain.invoke({"question": question, "chunks": formatted_chunks})
@@ -122,13 +143,17 @@ def rerank_chunks(
         return all_chunks
 
 
-def final_answer(question: str, chunks: list, inference_model: str, ollama_host: str):
+def final_answer(question: str, chunks: list, config: DictConfig):
+    model_config = config.models.final_answer
     context = format_chunks(chunks)
     chain = make_chain(
-        ollama_host=ollama_host,
-        model=inference_model,
+        ollama_host=config.ollama_host,
+        model=model_config.name,
         prompt_template=ANSWERING_PROMPT,
         input_variables=["context", "question"],
+        temp=model_config.temp,
+        top_k=model_config.top_k,
+        top_p=model_config.top_p,
     )
 
     result = chain.invoke({"context": context, "question": question})
@@ -146,24 +171,26 @@ def retrieve_relevant_chunks(question: str, inference_model: str, ollama_host: s
     return chunks
 
 
-def execute_rag_inference(question: str, inference_model: str, ollama_host: str):
+def execute_rag_inference(question: str, config: DictConfig):
     """Execute RAG pipeline with retrieved context"""
+    print("inizio pipeline")
 
+    inference_model = config.models.final_answer.name
     chunks = []
     it = 0
-    max_iterations = 50
-
-    while it < max_iterations and not determine_sufficiency(
-        question, chunks, ollama_host
-    ):
+    max_iterations = config.max_iterations
+    print("inizio ciclo")
+    while it < max_iterations and not determine_sufficiency(question, chunks, config):
         print(f"Starting iteration {it}")
-        query = query_reformulation(question, chunks, ollama_host)
+        query = query_reformulation(question, chunks, config)
         print(f"New query: {query}")
-        new_chunks = retrieve_relevant_chunks(query, inference_model, ollama_host)
+        new_chunks = retrieve_relevant_chunks(
+            query, inference_model, config.ollama_host
+        )
         print(f"Fetched new {len(new_chunks)} chunks")
-        chunks = rerank_chunks(question, chunks, new_chunks, ollama_host)
+        chunks = rerank_chunks(question, chunks, new_chunks, config)
         print(f"Retained {len(chunks)} chunks after reranking")
 
         it += 1
 
-    final_answer(question, chunks, inference_model, ollama_host)
+    final_answer(question, chunks, config)
