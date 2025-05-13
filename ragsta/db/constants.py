@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -22,3 +22,9 @@ def get_engine(
         f"postgresql://{username}:{password}@{host}:{port}/{DB_NAME}",
         connect_args={"options": "-csearch_path=embeddings,source"},
     )
+
+
+def confirm_model_schema(embedding_model: str, engine):
+    with engine.connect() as conn:
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{embedding_model}"'))
+        conn.commit()
